@@ -1,8 +1,8 @@
 {
   "type": "app",
   "version": "2.0.0",
-  "name": "Video Labeling Tool template",
-  "description": "Video Labeling Tool template",
+  "name": "Tracking App",
+  "description": "Tracking app integrated into the Video Annotation Tool",
   "docker_image": "supervisely/base-py-sdk:latest",
   "instance_version": "6.7.33",
   "categories": ["videos", "labeling"],
