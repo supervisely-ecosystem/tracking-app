@@ -11,14 +11,17 @@ from supervisely.app.widgets import (
     Table,
     Text,
     Checkbox,
+    SelectAppSession,
 )
 
 table = Table()
 run_button = Button("Predict next frame")
+session_select = SelectAppSession(sly.env.team_id(), "sly_video_tracking")
 
 layout = Container(
     widgets=[
         table,
+        session_select,
         run_button
     ]
 )
@@ -29,79 +32,63 @@ api = None
 project_meta = None
 event_video: sly.Event.ManualSelected.VideoChanged = None
 event_figure: sly.Event.ManualSelected.FigureChanged = None
+annotation: sly.VideoAnnotation = None
+key_id_map: sly.KeyIdMap = None
 # session_id = None
 # dataset_id = None
 # video_id = None
 # project_id = None
+frame_idx = None
 
-items = None
+selected_objects = []  # [{checked, object_id, name}]
 
 @app.event(sly.Event.ManualSelected.VideoChanged)
 def video_changed(event_api: sly.Api, event: sly.Event.ManualSelected.VideoChanged):
     print("video_changed")
-    global api, event_video, project_meta, items
+    global api, event_video, project_meta, selected_objects, annotation, key_id_map, frame_idx
+    
     api = event_api
     event_video = event
+    frame_idx = event_video.frame
     project_meta = sly.ProjectMeta.from_json(api.project.get_meta(event_video.project_id))
+    
+    # download annotation
+    annotation, key_id_map = download_annotation(api, event_video.video_id)
 
-    items = get_frame_annotation(event_video.video_id, event_video.frame)
-    for item in items:
-        item['checked'] = "❌"
+    # create selected_objects
+    selected_objects = []
+    frame_items = get_frame_items(annotation, key_id_map, frame_idx)
+    update_selected_objects(frame_items)
     update_table()
 
 
 @app.event(sly.Event.ManualSelected.FigureChanged)
 def figure_changed(event_api: sly.Api, event: sly.Event.ManualSelected.FigureChanged):
     print("figure_changed")
-    global event_figure, items
-
+    global event_figure, frame_idx, annotation, key_id_map
     if event.figure_id is None:
         return
     event_figure = event
+    frame_idx = event_figure.frame
 
-    if items is None:
-        return
-
-    # find figure in items and check it
-    for item in items:
-        if item['figure_id'] == event_figure.figure_id:
-            item['checked'] = "✅"
-            update_table()
-
-    # if added new figure, then add it to items
-    if event_figure.figure_id not in [item['figure_id'] for item in items]:
-        item = {
-            'figure_id': event_figure.figure_id,
-            'object_id': event_figure.object_id,
-            'name': event_figure.figure_class_title,
-            'checked': "✅"
-        }
-        items.append(item)
-        update_table()
+    annotation, key_id_map = download_annotation(api, event_video.video_id)
+    frame_items = get_frame_items(annotation, key_id_map, frame_idx)
+    update_selected_objects(frame_items)
+    update_table()
 
 
 @run_button.click
 def predict_next_frame():
-    global items
-    # table.get_json_state()
-    # Table.create_button
-
-    # collect figure ids and object ids
-    object_ids = []
-    figure_ids = []
-    for item in items:
-        if item['checked'] == "✅":
-            object_ids.append(item['object_id'])
-            figure_ids.append(item['figure_id'])
-
+    frame_items = get_frame_items(annotation, key_id_map, frame_idx)
+    figure_ids, object_ids = get_figures_and_objects(frame_items, selected_objects)
     video_id = event_video.video_id
-    frame_index = event_figure.frame
     track_id = 'none'
     direction = 'forward'
     frames_count = 1
+    task_id = session_select.get_selected_id() #or 52859
 
     data = {
-        "frameIndex": frame_index,
+        "frameIndex": frame_idx,
         "frames": frames_count,
         "trackId": track_id,
         "videoId": video_id,
@@ -112,19 +99,18 @@ def predict_next_frame():
 
     sly.json.dump_json_file(data, "data.json")
 
-    g.api.task.send_request(51877, "predict", {}, context=data)
+    g.api.task.send_request(task_id, "predict", {}, context=data)
 
 
 def update_table():
-    global items
-    table.read_pandas(pd.DataFrame(items))
+    table.read_pandas(pd.DataFrame(selected_objects))
+
 
 @table.click
 def handle_table_click(datapoint: Table.ClickedDataPoint):
     # switch checked state of the clicked row
-    global items
-    for item in items:
-        if item['figure_id'] == datapoint.row['figure_id']:
+    for item in selected_objects:
+        if item['object_id'] == datapoint.row['object_id']:
             if item['checked'] == "✅":
                 item['checked'] = "❌"
             else:
@@ -132,13 +118,8 @@ def handle_table_click(datapoint: Table.ClickedDataPoint):
     update_table()
 
 
-def get_frame_annotation(video_id, frame_idx) -> sly.Frame:
-    # Get the video annotation for the specified frame index
-    frame_annotation = api.video.annotation.download(video_id)
-    kei_id_map = sly.KeyIdMap()
-    ann = sly.VideoAnnotation.from_json(frame_annotation, project_meta, kei_id_map)
-    
-    # Extract the annotation for the given frame index
+def get_frame_items(ann: sly.VideoAnnotation, key_id_map: sly.KeyIdMap, frame_idx: int):
+    # Find the annotation for the frame_idx
     frame_annotation = None
     for frame in ann.frames:
         frame: sly.Frame
@@ -148,15 +129,43 @@ def get_frame_annotation(video_id, frame_idx) -> sly.Frame:
     assert frame_annotation is not None, "Frame not found in the annotation"
 
     # Extract figures from the frame annotation
-    items = []
+    frame_items = []
     for figure in frame_annotation.figures:
         if isinstance(figure.geometry, sly.Rectangle) is False:
             continue
         item = {
-            'figure_id': kei_id_map.get_figure_id(figure.key()),
-            'object_id': kei_id_map.get_object_id(figure.parent_object.key()),
+            'figure_id': key_id_map.get_figure_id(figure.key()),
+            'object_id': key_id_map.get_object_id(figure.parent_object.key()),
             'name': figure.parent_object.obj_class.name
         }
-        items.append(item)
+        frame_items.append(item)
     
-    return items
+    return frame_items
+
+
+def get_figures_and_objects(frame_items, selected_objects):
+    figures_id = []
+    objects_id = []
+    for item in frame_items:
+        item_s = [item_s for item_s in selected_objects if item_s['object_id'] == item['object_id']]
+        if item_s and item_s[0]['checked'] == "✅":
+            figures_id.append(item['figure_id'])
+            objects_id.append(item['object_id'])
+    return figures_id, objects_id
+
+
+def update_selected_objects(frame_items):
+    # detecting new objects
+    global selected_objects
+    for item in frame_items:
+        if item['object_id'] not in [item['object_id'] for item in selected_objects]:
+            item['checked'] = "❌"
+            item.pop('figure_id')
+            selected_objects.append(item)
+
+
+def download_annotation(api: sly.Api, video_id):
+    ann_json = api.video.annotation.download(video_id)
+    key_id_map = sly.KeyIdMap()
+    ann = sly.VideoAnnotation.from_json(ann_json, project_meta, key_id_map)
+    return ann, key_id_map
