@@ -72,7 +72,7 @@ def figure_changed(event_api: sly.Api, event: sly.Event.ManualSelected.FigureCha
     if event_figure.figure_id not in [item['figure_id'] for item in items]:
         item = {
             'figure_id': event_figure.figure_id,
-            'object_id': event_figure.annotation_object_id,
+            'object_id': event_figure.object_id,
             'name': event_figure.figure_class_title,
             'checked': "✅"
         }
