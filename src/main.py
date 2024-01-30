@@ -10,13 +10,13 @@ from supervisely.app.widgets import (
     Field,
     Table,
     Text,
-    Checkbox,
     SelectAppSession,
+    Input,
 )
 
 table = Table()
 run_button = Button("Predict next frame")
-session_select = SelectAppSession(sly.env.team_id(), "sly_video_tracking")
+session_select = Input(value="52859")
 
 layout = Container(
     widgets=[
@@ -85,7 +85,7 @@ def predict_next_frame():
     track_id = 'none'
     direction = 'forward'
     frames_count = 1
-    task_id = session_select.get_selected_id() #or 52859
+    task_id = int(session_select.get_value()) #or 52859
 
     data = {
         "frameIndex": frame_idx,
