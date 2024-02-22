@@ -85,7 +85,6 @@ def predict_next_frame():
     frame_items = get_frame_items(annotation, key_id_map, frame_idx)
     figure_ids, object_ids, figures = get_figures_and_objects(frame_items, selected_objects)
     video_id = event_video.video_id
-    direction = 'forward'
     frames_count = frame_count_input.get_value()
     task_id = int(session_select.get_value()) #or 52859
     bboxes = [figure.geometry.to_json() for figure in figures]
@@ -93,14 +92,14 @@ def predict_next_frame():
         "videoId": video_id,
         "frameIndex": frame_idx,
         "frames": frames_count,
-        "direction": direction,
         "bboxes": bboxes,
+        # "direction": "forward"  # optional
     }
 
     sly.json.dump_json_file(data, "data.json")
 
     g.api.retry_count = 1
-    response = g.api.task.send_request(task_id, "predict", {}, context=data)
+    response = g.api.task.send_request(task_id, "track-api", {}, context=data)
     sly.json.dump_json_file(response, "response.json")
 
     start_frame_idx = frame_idx
