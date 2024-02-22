@@ -12,16 +12,19 @@ from supervisely.app.widgets import (
     Text,
     SelectAppSession,
     Input,
+    InputNumber
 )
 
 table = Table()
 run_button = Button("Predict next frame")
-session_select = Input(value="52859")
+session_select = Input(value="53614")
+frame_count_input = InputNumber(2, min=1, step=1)
 
 layout = Container(
     widgets=[
         table,
         session_select,
+        frame_count_input,
         run_button
     ]
 )
@@ -82,14 +85,15 @@ def predict_next_frame():
     frame_items = get_frame_items(annotation, key_id_map, frame_idx)
     figure_ids, object_ids, figures = get_figures_and_objects(frame_items, selected_objects)
     video_id = event_video.video_id
-    # direction = 'forward'
-    frames_count = 2
+    direction = 'forward'
+    frames_count = frame_count_input.get_value()
     task_id = int(session_select.get_value()) #or 52859
     bboxes = [figure.geometry.to_json() for figure in figures]
     data = {
+        "videoId": video_id,
         "frameIndex": frame_idx,
         "frames": frames_count,
-        "videoId": video_id,
+        "direction": direction,
         "bboxes": bboxes,
     }
 
