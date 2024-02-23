@@ -84,15 +84,19 @@ def figure_changed(event_api: sly.Api, event: sly.Event.ManualSelected.FigureCha
 def predict_next_frame():
     frame_items = get_frame_items(annotation, key_id_map, frame_idx)
     figure_ids, object_ids, figures = get_figures_and_objects(frame_items, selected_objects)
+    geom_names = [figure.geometry.geometry_name() for figure in figures]
     video_id = event_video.video_id
     frames_count = frame_count_input.get_value()
     task_id = int(session_select.get_value()) #or 52859
-    bboxes = [figure.geometry.to_json() for figure in figures]
+    geometries = [
+        {"name": figure.geometry.geometry_name(), "data": figure.geometry.to_json()}
+        for figure in figures
+        ]
     data = {
         "videoId": video_id,
         "frameIndex": frame_idx,
         "frames": frames_count,
-        "bboxes": bboxes,
+        "input_geometries": geometries,
         # "direction": "forward"  # optional
     }
 
@@ -103,11 +107,11 @@ def predict_next_frame():
     sly.json.dump_json_file(response, "response.json")
 
     start_frame_idx = frame_idx
-    for i, bboxes in enumerate(response):
-        for object_id, bbox in zip(object_ids, bboxes):
+    for i, geometries in enumerate(response):
+        for geom_name, object_id, bbox in zip(geom_names, object_ids, geometries):
             frame = start_frame_idx + i + 1
             g.api.video.figure.create(
-                video_id, object_id, frame, bbox, sly.Rectangle.geometry_name(), "auto"
+                video_id, object_id, frame, bbox, geom_name, "auto"
             )
 
 
@@ -127,7 +131,7 @@ def handle_table_click(datapoint: Table.ClickedDataPoint):
     update_table()
 
 
-def get_frame_items(ann: sly.VideoAnnotation, key_id_map: sly.KeyIdMap, frame_idx: int, geometry_type=sly.Rectangle):
+def get_frame_items(ann: sly.VideoAnnotation, key_id_map: sly.KeyIdMap, frame_idx: int):
     # Find the annotation for the frame_idx
     frame_annotation = None
     for frame in ann.frames:
@@ -140,13 +144,14 @@ def get_frame_items(ann: sly.VideoAnnotation, key_id_map: sly.KeyIdMap, frame_id
     # Extract figures from the frame annotation
     frame_items = []
     for figure in frame_annotation.figures:
-        if isinstance(figure.geometry, geometry_type) is False:
-            continue
+        # if isinstance(figure.geometry, geometry_type) is False:
+        #     continue
         item = {
             'figure_id': key_id_map.get_figure_id(figure.key()),
             'object_id': key_id_map.get_object_id(figure.parent_object.key()),
             'name': figure.parent_object.obj_class.name,
             'figure': figure,
+            'type': figure.geometry.geometry_name(),
         }
         frame_items.append(item)
 
