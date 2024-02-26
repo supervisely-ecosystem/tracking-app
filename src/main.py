@@ -104,6 +104,16 @@ def predict_next_frame():
 
     g.api.retry_count = 1
     response = g.api.task.send_request(task_id, "track-api", {}, context=data)
+
+    # For Smart Tool API:
+    # data = image_bytes
+    # context = {
+    #     "crop": [{"x": 0, "y": 0}, {"x": 100, "y": 100}],
+    #     "posititve": [{"x": 20, "y": 40}],
+    #     "negative": [{"x": 10, "y": 10}],
+    # }
+    # response = g.api.task.send_request(task_id, "smart_segmentation", data=data, context=context)
+
     sly.json.dump_json_file(response, "response.json")
 
     start_frame_idx = frame_idx
