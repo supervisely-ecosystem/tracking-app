@@ -89,7 +89,7 @@ def predict_next_frame():
     frames_count = frame_count_input.get_value()
     task_id = int(session_select.get_value()) #or 52859
     geometries = [
-        {"name": figure.geometry.geometry_name(), "data": figure.geometry.to_json()}
+        {"type": figure.geometry.geometry_name(), "data": figure.geometry.to_json()}
         for figure in figures
         ]
     data = {
