@@ -1,1 +1,1 @@
-git+https://github.com/supervisely/supervisely@new_events
+# supervisely==6.73.45
