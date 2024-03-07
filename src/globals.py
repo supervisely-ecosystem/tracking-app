@@ -1,7 +1,10 @@
 import os
+
 from dotenv import load_dotenv
+
 import supervisely as sly
 import supervisely.app.development as sly_app_development
+
 
 port = "8000"
 # Enabling advanced debug mode.
@@ -13,6 +16,7 @@ if sly.is_development():
     sly_app_development.create_debug_task(team_id, port=port)
 
 api = sly.Api()
+
 
 def find_debug_task_id(port):
     me = api.user.get_my_info()
@@ -30,7 +34,8 @@ def find_debug_task_id(port):
                 task["id"] = task["taskId"]
             sly.logger.info(f"Debug task already exists: {task['id']}")
             break
-    return task['id']
+    return task["id"]
+
 
 task_id = None
 if sly.is_development():
@@ -38,3 +43,32 @@ if sly.is_development():
     if task_id is None:
         raise RuntimeError("Debug task not found")
 
+
+class AppState:
+    def __init__(self):
+        # project
+        self.project_id: int = None
+        self.project_meta: sly.ProjectMeta = None
+        # dataset
+        self.dataset_id: int = None
+        # video
+        self.current_video_id: int = None
+        self.current_video_info: sly.api.video_api.VideoInfo
+        # frame
+        self.current_frame_index: int = None
+        # figure
+        self.current_figure_id: int = None
+        self.figure_changed: dict = {}
+
+
+STATE = AppState()
+NN_URLS = {
+    sly.Rectangle.geometry_name(): "http://100.83.184.134:8080",
+    sly.Bitmap.geometry_name(): "http://100.83.184.134:8081",
+    sly.Polygon.geometry_name(): "http://100.83.184.134:8082",
+    sly.Point.geometry_name(): "http://100.83.184.134:8082",
+    sly.Polyline.geometry_name(): "http://100.83.184.134:8082",
+    sly.GraphNodes.geometry_name(): "http://100.83.184.134:8082",
+    # sly.Polygon.geometry_name(): "http://100.83.184.134:8082",
+    "smarttool": "http://100.83.184.134:8083",
+}

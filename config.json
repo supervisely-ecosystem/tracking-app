@@ -13,5 +13,6 @@
   "poster": "",
   "entrypoint": "python -m uvicorn src.main:app --host 0.0.0.0 --port 8000",
   "integrated_into": ["video_annotation_tool"],
+  "send_previous_figure_on_selected_figure": true,
   "port": 8000
 }

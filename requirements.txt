@@ -1,1 +1,2 @@
 # supervisely==6.73.45
+git+https://github.com/supervisely/supervisely.git@bbox_tracking_debug
