@@ -42,6 +42,7 @@ if sly.is_development():
     task_id = find_debug_task_id(port)
     if task_id is None:
         raise RuntimeError("Debug task not found")
+team_id = sly.env.team_id()
 
 
 class AppState:
@@ -72,3 +73,6 @@ NN_URLS = {
     # sly.Polygon.geometry_name(): "http://100.83.184.134:8082",
     "smarttool": "http://100.83.184.134:8083",
 }
+
+
+AUTO_TRACK_MODULE_ID = 714

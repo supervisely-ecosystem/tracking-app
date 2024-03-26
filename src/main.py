@@ -1,6 +1,7 @@
 import datetime
 import json
 from typing import List
+import uuid
 import pytz
 import requests
 
@@ -30,32 +31,42 @@ def all_frames_changed(is_checked):
         frame_count_input.enable()
 
 
-run_on_all_objects_button = Button("Run inference on all objects")
+start_frame_input = InputNumber(0, min=0, step=1)
+start_frame_field = Field(title="Start frame", content=start_frame_input)
 
-event_mock_frame_changed_button = Button("Frame changed")
-event_mock_frame_changed_input = InputNumber(0, min=0, step=1)
-event_mock_frame_changed_field = Field(
-    content=Container(widgets=[event_mock_frame_changed_input, event_mock_frame_changed_button]),
-    title="Mock frame changed event",
-    description="Click to mock frame changed event",
-)
+task_id_input = InputNumber(0, min=0, step=1)
+task_id_input_field = Field(title="Task ID", content=task_id_input)
+run_on_all_objects_button = Button("Track all objects")
 
-event_mock_figure_deleted_button = Button("Delete Figure")
-event_mock_figure_deleted_field = Field(
-    content=event_mock_figure_deleted_button,
-    title="Mock figure deleted event",
-    description="Select figure and click to delete figure and mock figure deleted event",
-)
+event_mock_cache_video_button = Button("Cache video")
+
+# event_mock_frame_changed_button = Button("Frame changed")
+# event_mock_frame_changed_input = InputNumber(0, min=0, step=1)
+# event_mock_frame_changed_field = Field(
+#     content=Container(widgets=[event_mock_frame_changed_input, event_mock_frame_changed_button]),
+#     title="Mock frame changed event",
+#     description="Click to mock frame changed event",
+# )
+
+# event_mock_figure_deleted_button = Button("Delete Figure")
+# event_mock_figure_deleted_field = Field(
+#     content=event_mock_figure_deleted_button,
+#     title="Mock figure deleted event",
+#     description="Select figure and click to delete figure and mock figure deleted event",
+# )
 
 running_inference_notification_title = "Running inference"
 running_inference_notification = NotificationBox("Running inference", "info")
 running_inference_notification.hide()
 widgets_container = Container(
     widgets=[
+        start_frame_field,
         frame_count_field,
+        task_id_input_field,
         run_on_all_objects_button,
-        event_mock_frame_changed_field,
-        event_mock_figure_deleted_field,
+        event_mock_cache_video_button,
+        # event_mock_frame_changed_field,
+        # event_mock_figure_deleted_field,
     ]
 )
 
@@ -119,8 +130,8 @@ def cache_frames(nn_url: str, video_id: int, frame_indexes: List[int]):
 
 
 @sly.timeit
-def cache_video(nn_url: str, video_id: int):
-    sly.logger.debug("Caching video", extra={"nn_url": nn_url, "video_id": video_id})
+def cache_video(video_id: int):
+    sly.logger.debug("Caching video", extra={"video_id": video_id})
     # video_info = g.api.video.get_info_by_id(video_id)
     # video_path = Path("/sly_task_data") / video_info.name
     # if not video_path.exists():
@@ -136,28 +147,33 @@ def cache_video(nn_url: str, video_id: int):
     #     ]
     #     r = requests.post(f"{nn_url}/smart_cache_files", files=files)
     #     r.raise_for_status()
+    geometries = [oc.geometry_type.geometry_name() for oc in g.STATE.project_meta.obj_classes]
+    task_id = task_id_input.get_value()
     try:
-        r = requests.post(
-            f"{nn_url}/smart_cache",
-            json={
-                "state": {
-                    "video_id": video_id,
-                    "server_address": sly.env.server_address(),
-                    "api_token": sly.env.api_token(),
-                }
+        r = g.api.app.send_request(
+            task_id,
+            "cache_video",
+            data={
+                "video_id": video_id,
+                "server_address": sly.env.server_address(),
+                "api_token": sly.env.api_token(),
+                "geometries": geometries,
             },
-            timeout=120,
         )
-        r.raise_for_status()
+        sly.logger.debug("Cache video response", extra={"response": r})
     except Exception:
-        sly.logger.error(
-            "Failed to cache video", extra={"nn_url": nn_url, "video_id": video_id}, exc_info=True
-        )
+        sly.logger.error("Failed to cache video", extra={"video_id": video_id}, exc_info=True)
 
 
-def set_video(api: sly.Api, project_id: int, video_id: int):
+@event_mock_cache_video_button.click
+def cache_video_button():
+    cache_video(g.STATE.current_video_id)
+
+
+def set_video(api: sly.Api, project_id: int, dataset_id: int, video_id: int):
     g.STATE.project_id = project_id
     g.STATE.project_meta = sly.ProjectMeta.from_json(api.project.get_meta(project_id))
+    g.STATE.dataset_id = dataset_id
     g.STATE.current_video_id = video_id
     g.STATE.current_video_info = api.video.get_info_by_id(video_id)
 
@@ -165,74 +181,110 @@ def set_video(api: sly.Api, project_id: int, video_id: int):
 @app.event(sly.Event.ManualSelected.VideoChanged)
 def video_changed(event_api: sly.Api, event: sly.Event.ManualSelected.VideoChanged):
     print("video_changed")
-    set_video(event_api, event.project_id, event.video_id)
-    nn_urls = get_nn_urls()
-    for nn_url in nn_urls:
-        cache_video(nn_url, video_id=event.video_id)
+    set_video(event_api, event.project_id, event.dataset_id, event.video_id)
+    cache_video(video_id=event.video_id)
 
 
 def set_frame(frame_index: int):
     g.STATE.current_frame_index = frame_index
 
 
-@event_mock_frame_changed_button.click
-def frame_changed():
-    print("frame_changed")
-    current_frame = event_mock_frame_changed_input.get_value()
-    set_frame(current_frame)
-    frame_count = get_frame_count(current_frame)
-    nn_urls = get_nn_urls()
-    for nn_url in nn_urls:
-        cache_frames(
-            nn_url=nn_url,
-            video_id=g.STATE.current_video_id,
-            frame_indexes=list(range(current_frame, current_frame + frame_count + 1)),
-        )
+# @event_mock_frame_changed_button.click
+# def frame_changed():
+#     print("frame_changed")
+#     current_frame = event_mock_frame_changed_input.get_value()
+#     set_frame(current_frame)
+#     frame_count = get_frame_count(current_frame)
+#     nn_urls = get_nn_urls()
+#     for nn_url in nn_urls:
+#         cache_frames(
+#             nn_url=nn_url,
+#             video_id=g.STATE.current_video_id,
+#             frame_indexes=list(range(current_frame, current_frame + frame_count + 1)),
+#         )
 
 
 @run_on_all_objects_button.click
 def run_on_all_objects():
     print("run_on_all_objects")
-    frame_idx = g.STATE.current_frame_index
+    frame_idx = start_frame_input.get_value()
     frames_count = get_frame_count(frame_idx)
     key_id_map = sly.KeyIdMap()
     annotation = sly.VideoAnnotation.from_json(
         g.api.video.annotation.download(g.STATE.current_video_id), g.STATE.project_meta, key_id_map
     )
-    frames_figures = []
-    frame = annotation.frames.get(frame_idx)
-    for figure in frame.figures:
+
+    # remove track figures
+    figures_to_remove = []
+    for figure in annotation.figures:
         if figure.frame_index in range(frame_idx + 1, frame_idx + frames_count + 1):
-            frames_figures.append(figure.id)
-    frames_figures = g.api.video.figure.get_by_ids(
-        dataset_id=g.STATE.dataset_id, ids=frames_figures
+            figures_to_remove.append(key_id_map.get_figure_id(figure.key()))
+    if len(figures_to_remove) > 0:
+        figures_to_remove = g.api.video.figure.get_by_ids(g.STATE.dataset_id, figures_to_remove)
+        figures_to_remove = [
+            fig.id for fig in figures_to_remove if fig.meta.get("trackId", None) is not None
+        ]
+    if len(figures_to_remove) > 0:
+        g.api.video.figure.remove_batch(figures_to_remove)
+
+    # get figures to track
+    frame = annotation.frames.get(frame_idx)
+    non_track_figure_ids = [
+        key_id_map.get_figure_id(fig.key())
+        for fig in frame.figures
+        if fig.get_meta().get("trackId", None) is None
+    ]
+    non_track_object_ids = [
+        key_id_map.get_object_id(fig.parent_object.key())
+        for fig in frame.figures
+        if fig.get_meta().get("trackId", None) is None
+    ]
+
+    task_id = task_id_input.get_value()
+    context = {
+        "frameIndex": frame_idx,
+        "frames": frames_count,
+        "videoId": g.STATE.current_video_id,
+        "figureIds": non_track_figure_ids,
+        "objectIds": non_track_object_ids,
+        "trackId": str(uuid.uuid4()),
+        "direction": "forward",
+    }
+    r = g.api.task.send_request(task_id, "track", data={}, context=context)
+    print(
+        "Track request: ",
+        json.dumps(
+            {
+                "task_id": task_id,
+                "context": context,
+                "response": r,
+            }
+        ),
     )
-    track_figure_ids = [fig for fig in frames_figures if fig.meta.get("trackId", None) is not None]
-    g.api.video.figure.remove_batch(track_figure_ids)
 
-    for figure in frame.figures:
-        figure_id = key_id_map.get_figure_id(figure.key())
-        object_id = key_id_map.get_object_id(figure.parent_object.key())
-        predictions = inference.run(
-            g.STATE.current_video_id,
-            frame_idx,
-            figure,
-            frames_count,
-        )
-        frame_indexes = list(range(frame_idx + 1, frame_idx + frames_count + 1))
-        tracking.upload_predictions(
-            g.STATE.current_video_id, predictions, frame_indexes, figure_id, object_id
-        )
+    # for figure in frame.figures:
+    #     figure_id = key_id_map.get_figure_id(figure.key())
+    #     object_id = key_id_map.get_object_id(figure.parent_object.key())
+    #     predictions = inference.run(
+    #         g.STATE.current_video_id,
+    #         frame_idx,
+    #         figure,
+    #         frames_count,
+    #     )
+    #     frame_indexes = list(range(frame_idx + 1, frame_idx + frames_count + 1))
+    #     tracking.upload_predictions(
+    #         g.STATE.current_video_id, predictions, frame_indexes, figure_id, object_id
+    #     )
 
 
-@event_mock_figure_deleted_button.click
-def delete_selected_figure():
-    figure_id = g.STATE.current_figure_id
-    if figure_id is None:
-        return
-    g.STATE.current_figure_id = None
-    g.api.video.figure.remove(figure_id)
-    tracking_history.remove(figure_id)
+# @event_mock_figure_deleted_button.click
+# def delete_selected_figure():
+#     figure_id = g.STATE.current_figure_id
+#     if figure_id is None:
+#         return
+#     g.STATE.current_figure_id = None
+#     g.api.video.figure.remove(figure_id)
+#     tracking_history.remove(figure_id)
 
 
 def is_figure_changed(figure: FigureInfo, updated_at: str):
@@ -250,6 +302,7 @@ def is_figure_changed(figure: FigureInfo, updated_at: str):
 
 @app.event(sly.Event.ManualSelected.FigureChanged)
 def _figure_changed(event_api: sly.Api, event: sly.Event.ManualSelected.FigureChanged):
+    return
     sly.logger.debug(
         "figure_changed", extra={"event": {str(k): str(v) for k, v in vars(event).items()}}
     )
@@ -317,3 +370,10 @@ def _figure_changed(event_api: sly.Api, event: sly.Event.ManualSelected.FigureCh
             object_id,
         )
         g.STATE.figure_changed[previous_figure.id] = previous_figure.updated_at
+
+
+auto_track_sessions = g.api.app.get_sessions(
+    g.team_id, g.AUTO_TRACK_MODULE_ID, statuses=[g.api.app.Status.STARTED]
+)
+if len(auto_track_sessions) > 0:
+    task_id_input.value = auto_track_sessions[0].task_id
